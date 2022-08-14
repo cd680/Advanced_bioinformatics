@@ -88,4 +88,4 @@ tated.txt --ssIntronicRange 2 --outputVCFInfo VariantType AC AF AN DP FS MQ QD -
 utVCFQuality --outputVCFFilter
   
 fi
-echo "aaaaaaa"
+echo "pipeline complete"
