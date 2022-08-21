@@ -1,0 +1,134 @@
+Echo “Remove columns we don’t need”
+grep -v "##" individuals.vcf | cut -f3,5,4- > vcf_data.txt
+
+Echo “Convert genotypes to numerical formats”
+sed -i "s/0\/0/0/g" vcf_data2.txt
+sed -i "s/0\/1/1/g" vcf_data2.txt
+sed -i "s/1\/1/2/g" vcf_data2.txt
+
+Open R:
+
+allele_effects = read.table("t1d_weights_alleles2.txt", header=T, stringsAsFactors=F)
+
+# Merging data frames:
+genotypes = read.table("vcf_data2.txt", header=T, stringsAsFactors=F)
+
+effect_alleles_and_genes = merge(x=allele_effects, y=genotypes, by.x = "snp", by.y="ID")
+
+Converting ALT allele counts to effect allele counts:
+
+# Create a list of individual IDs in the corresponding column ordering of genotypes in the DF 
+Individuals= names(effect_alleles_and_genes)[5:ncol(effect_alleles_and_genes)]
+
+# Create a variable to store the number SNPs found in the effect_alleles_and_genes DF
+snp_count = nrow(effect_alleles_and_genes)
+
+# Use for loop that creates a variable called snpIndex to point to row to analyse):
+for (snpIndex in 1:snp_count) {
+
+# Check if ALT not equal to the effect_allele on the row being pointed to
+if (effect_alleles_and_genes$ALT[snpIndex] !=effect_alleles_and_genes$effect_allele[snpIndex]) {
+
+# If true (i.e. they differ), cycle through each individual on row
+for (ind in individuals) {
+
+# Subtract existing genotype for individual on row number from 2 on the row
+effect_alleles_and_genes [[ind]][snpIndex] = 2-effect_alleles_and_genes[[ind]][snpIndex]
+
+} #end inner for-loop
+} # end if
+} # end outer for-loop
+
+Effect allele counts to weighted alleles
+
+# Create copy of effect_alleles_and_genes called weighted_g
+weighted_g = effect_alleles_and_genes
+
+# Multiply each genotype (now coded to the number of disease risk/trait raising alleles by the effect
+weighted_g[,5:ncol(weighted_g)] = weighted_g[,5:ncol(weighted_g)] * weighted_g$effect
+
+# Turn weighted alleles into weighted allele scores
+was = numeric(length(individuals))
+for (i in 1:length(individuals)) {
+
+# Get the next column name stored in individuals at index i
+individual = individuals[i]
+
+# Sum the weighted allele column for this patient and store the result in the vector
+was[i] = sum(weighted_g[[individual]])
+}
+grs_df = data.frame(individuals, was)
+
+grs_df$individuals = as.character(grs_df$individuals)
+
+# Preview first 10 individuals:
+grs_df[1:10,]
+
+
+Accounting for genetic interactions in GRS
+
+interaction_effects = read.table("t1d_weights_haplotypes.txt", header=T, stringsAsFactors=F, sep="\t")
+
+rs2187668_row = which(genotypes$ID == "rs2187668")
+rs7454108_row = which(genotypes$ID == "rs7454108")
+
+# Show row indices
+rs2187668_row
+rs7454108_row
+
+# Pre-allocate some memory for variable to store interaction scores for each individual
+interaction_scores = numeric(length(individuals))
+
+# Create variable as counter to provide index to where we need to insert next interaction score
+i = 1
+for (ind in individuals) {
+
+# Now get the genotypes for the individual for the two interacting SNPs using the row indices
+rs2187668_geno = genotypes[[ind]][rs2187668_row]
+rs7454108_geno = genotypes[[ind]][rs7454108_row]
+
+# Determine if any rows in the interaction_effects DF match the genotype combination
+# This will return a vector of length 1 if a match is found
+interactionEffectRow = which(interaction_effects$snp1_ALT_count == rs2187668_geno & interaction_effects$snp2_ALT_count == rs7454108_geno)
+
+# If one row returned, then update vector value at interactionScores[i]
+if (length(interactionEffectRow) == 1) {
+interaction_scores[i] = interaction_effects$weight[interactionEffectRow]
+} # Otherwise do nothing (vector value remains 0)
+
+# increment counter
+i = i+1
+}
+
+grs_df$interaction_scores = interaction_scores
+
+Collect data summary of GRS
+
+# Get minimum weighted allele score value
+min(grs_df$was)
+
+# Get maximum weighted allele score value
+max(grs_df$was)
+
+# Get mean weighted allele score
+mean(grs_df$was)
+
+# Get standard deviation of weighted allele scores
+sd(grs_df$was)
+
+# Print multiple descriptive stats
+summary(grs_df$was)
+
+# Plot distribution of weighted allele scores (was)
+hist(x=grs_df$was, main="WAS Distribution", xlab="WAS", ylab="Frequency")
+
+# Looking at individuals (here individual per4467)
+P3_was = grs_df[grs_df$individuals == "P3", "was"]
+abline(v = P3_was, col="red")
+
+# Save plot
+png("P3Plot.png")
+hist(x=grs_df$was, main="WAS Distribution", xlab="WAS", ylab="Frequency")
+abline(v = P3_was, col="red")
+dev.off()
+
